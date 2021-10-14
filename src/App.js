@@ -1,80 +1,54 @@
 import * as React from 'react';
 
-const initialStories = [
-  {
-    title: 'React',
-    url: 'https://reactjs.org/',
-    author: 'Jordan Walke',
-    num_comments: 3,
-    points: 4,
-    objectID: 0,
-  },
-  {
-    title: 'Redux',
-    url: 'https://redux.js.org/',
-    author: 'Dan Abramov, Andrew Clark',
-    num_comments: 2,
-    points: 5,
-    objectID: 1,
-  },
-];
+const API_ENDPOINT = 'http://hn.algolia.com/api/v1/search?query=';
 
-// api call
-const getAsuncStories = () => 
-  new Promise((resolve) =>
-    setTimeout(
-      () => resolve({ data: { stories: initialStories }}),
-      2000
-    )
+// Building own hook
+// const [searchTerm, setSearchTerm] = useSemiPersistentState('React');
+
+const useSemiPersistentState = (key, initialState) => {
+  const [value, setValue] = React.useState(
+    localStorage.getItem(key) || initialState
   );
 
-  // Building own hook
-  // const [searchTerm, setSearchTerm] = useSemiPersistentState('React');
+  React.useEffect(() => {
+    localStorage.setItem(key, value);
+  }, [value, key]);
 
-  const useSemiPersistentState = (key, initialState) => {
-    const [value, setValue] = React.useState(
-      localStorage.getItem(key) || initialState
-    );
+  return [value, setValue];
+};
 
-    React.useEffect(() => {
-      localStorage.setItem(key, value);
-    }, [value, key]);
-
-    return [value, setValue];
-  };
-
-  const storiesReducer = (state, action) => {
-    switch (action.type) {
-      case 'STORIES_FETCH_INIT':
-        return {
-          ...state,
-          isLoading: true,
-          isError: false,
-        };
-      case 'STORIES_FETCH_SUCCESS':
-        return {
-          ...state,
-          isLoading: false,
-          isError: false,
-          data: action.payload,
-        };
-      case 'STORIES_FETCH_FAILURE':
-        return {
-          ...state,
-          isLoading: false,
-          isError: true,
-        };
-      case 'REMOVE_STORY':
-        return {
-          ...state,
-          data: state.data.filter(
-            (story) => action.payload.objectID !== story.objectID
-          ),
-        };
-      default:
+const storiesReducer = (state, action) => {
+  switch (action.type) {
+    case 'STORIES_FETCH_INIT':
+      return {
+        ...state,
+        isLoading: true,
+        isError: false,
+      };
+    case 'STORIES_FETCH_SUCCESS':
+      return {
+        ...state,
+        isLoading: false,
+        isError: false,
+        data: action.payload,
+      };
+    case 'STORIES_FETCH_FAILURE':
+      return {
+        ...state,
+        isLoading: false,
+        isError: true,
+      };
+    case 'REMOVE_STORY':
+      return {
+        ...state,
+        data: state.data.filter(
+          (story) => action.payload.objectID !== story.objectID
+        ),
+      };
+    default:
       throw new Error();
-    }
-  };
+  }
+};
 
 
 const App = () => {
@@ -84,25 +58,35 @@ const App = () => {
     'React'
   );
 
+  const [url, setUrl] = React.useState(
+    `${API_ENDPOINT}${searchTerm}`
+  );
+
   const [stories, dispatchStories] = React.useReducer(
     storiesReducer,
     { data: [], isLoading: false, isError: false }
-    );
+  );
 
-  React.useEffect(() => {
+  const handleFetchStories = React.useCallback(() => {
+
     dispatchStories({ type: 'STORIES_FETCH_INIT' });
 
-    getAsuncStories()
+    fetch(url)
+      .then((response) => response.json())
       .then((result) => {
         dispatchStories({
           type: 'STORIES_FETCH_SUCCESS',
-          payload: result.data.stories,
+          payload: result.hits,
         });
-    })
-    .catch(() => 
-      dispatchStories({ type: 'STORIES_FETCH_FAILURE' })
-    );
-  }, []);
+      })
+      .catch(() =>
+        dispatchStories({ type: 'STORIES_FETCH_FAILURE' })
+      );
+  }, [url]);
+
+  React.useEffect(() => {
+    handleFetchStories();
+  }, [handleFetchStories]);
 
   const handleRemoveStory = (item) => {
     dispatchStories({
@@ -110,25 +94,14 @@ const App = () => {
       payload: item,
     });
   };
-  
 
-  // const [searchTerm, setSearchTerm] = React.useState(
-  //   localStorage.getItem('search') || 'React'
-  // );
+  const handleSearchInput = (event) => {
+    setSearchTerm(event.target.value);
+  };
 
-  // React.useEffect(() => {
-  //   localStorage.setItem('search', searchTerm);
-  // }, [searchTerm]);
-
-    const handleSearch = (event) => {
-      setSearchTerm(event.target.value);
-
-      // localStorage.setItem('search', event.target.value);
-    };
-
-    const searchedStories = stories.data.filter((story) =>
-      story.title.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+  const handlesSearchSubmit = () => {
+    setUrl(`${API_ENDPOINT}${searchTerm}`);
+  };
 
   return (
     <div>
@@ -138,10 +111,18 @@ const App = () => {
         id="search"
         value={searchTerm}
         isFocused
-        onInputChange={handleSearch}
-        >
-          <strong>Search:</strong>
-        </InputWithLabel>
+        onInputChange={handleSearchInput}
+      >
+        <strong>Search:</strong>
+      </InputWithLabel>
+
+      <button
+        type="button"
+        disabled={!searchTerm}
+        onClick={handlesSearchSubmit}
+      >
+        Submit
+      </button>
 
       <hr />
 
@@ -150,23 +131,26 @@ const App = () => {
       {stories.isLoading ? (
         <p>Loading ...</p>
       ) : (
-        <List list={searchedStories} onRemoveItem={handleRemoveStory}/>
+        <List
+          list={stories.data}
+          onRemoveItem={handleRemoveStory}
+        />
       )}
 
-      
+
     </div>
   );
-}
+};
 
-const InputWithLabel = ({ 
+const InputWithLabel = ({
   id,
   value,
   type = 'text',
   onInputChange,
   isFocused,
   children,
- }) => {
- 
+}) => {
+
   const inputRef = React.useRef();
 
   React.useEffect(() => {
@@ -178,30 +162,30 @@ const InputWithLabel = ({
     <>
       <label htmlFor={id}>{children}</label>
       &nbsp;
-      <input 
+      <input
         ref={inputRef}
-        id={id} 
+        id={id}
         type={type}
-        value={value} 
-        autoFocus={isFocused}
-        onChange={onInputChange} 
+        value={value}
+        // autoFocus={isFocused}
+        onChange={onInputChange}
       />
     </>
   );
 };
 
-const List = ({list, onRemoveItem }) => (
-    <ul>
-      {list.map((item) => (
-          <Item key={item.objectID} 
-          item={item}
-          onRemoveItem={onRemoveItem} 
-          />
-      ))}
-    </ul>
+const List = ({ list, onRemoveItem }) => (
+  <ul>
+    {list.map((item) => (
+      <Item key={item.objectID}
+        item={item}
+        onRemoveItem={onRemoveItem}
+      />
+    ))}
+  </ul>
 );
 
-const Item = ({item, onRemoveItem}) => (
+const Item = ({ item, onRemoveItem }) => (
   <li>
     <span>
       <a href={item.url}>{item.title}</a>
@@ -210,14 +194,14 @@ const Item = ({item, onRemoveItem}) => (
     <span>{item.num_comments}</span>
     <span>{item.points}</span>
     <span>
-        <button 
-        type="button" 
+      <button
+        type="button"
         onClick={() => onRemoveItem(item)}>
-          Dismiss
-        </button>
-      </span>
+        Dismiss
+      </button>
+    </span>
   </li>
-  
+
 );
 
 export default App;
